@@ -3,32 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice AI Chess</title>
+    <title>Voice AI Chess Pro</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background: #2c3e50; color: white; }
-        #board { width: 450px; margin-top: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
-        .info { margin: 20px; text-align: center; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 5px; border: none; background: #27ae60; color: white; transition: 0.3s; }
-        button:hover { background: #2ecc71; }
-        #status { margin-top: 10px; color: #ecf0f1; font-weight: bold; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; display: flex; justify-content: center; margin: 0; padding: 20px; }
+        .container { display: flex; gap: 20px; max-width: 1100px; width: 100%; }
+        .board-section { flex: 1.5; text-align: center; }
+        #board { width: 500px; margin: 0 auto; border: 5px solid #333; border-radius: 4px; transition: border-color 0.3s; }
+        .side-panel { flex: 1; background: #2d2d2d; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 15px; }
+        .stats { background: #3d3d3d; padding: 15px; border-radius: 5px; }
+        .score-val { font-size: 24px; font-weight: bold; color: #2ecc71; }
+        .captured-area { font-size: 1.4em; min-height: 30px; margin-top: 5px; letter-spacing: 2px; }
+        .voice-guide { background: #1e1e1e; padding: 12px; border-radius: 5px; font-size: 0.85em; text-align: left; }
+        .guide-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; color: #3498db; font-weight: bold; margin-top: 5px; }
+        .guide-grid span { color: #aaa; font-weight: normal; }
+        .history-box { height: 120px; background: #1e1e1e; padding: 10px; border-radius: 5px; overflow-y: auto; font-family: monospace; font-size: 0.9em; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 1em; }
+        #listenBtn { background: #3498db; color: white; margin-top: 10px; }
+        #hintBtn { background: #f1c40f; color: black; }
+        #resetBtn { background: #e74c3c; color: white; }
+        select { width: 100%; padding: 10px; background: #444; color: white; border-radius: 5px; border: none; font-size: 1em; }
+        #status { font-style: italic; color: #2ecc71; min-height: 40px; margin-top: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>🎙️ Voice Assisted Chess</h2>
-    
-    <div id="board"></div>
+<div class="container">
+    <div class="board-section">
+        <div id="board"></div>
+        <p id="status">Ready! Try "Alpha 2 Alpha 4"</p>
+        <button id="listenBtn">🎤 START VOICE COMMAND</button>
 
-    <div class="info">
-        <button id="listenBtn">🎤 Say Move (e.g. "E2 E4")</button>
-        <p id="status">Allow microphone and click start.</p>
+        <div class="voice-guide" style="margin-top: 20px;">
+            <strong style="color: #3498db;">🗣️ Custom Voice Guide (A-H)</strong>
+            <div class="guide-grid">
+                <div><span>A:</span> Alpha</div> <div><span>E:</span> Eko</div>
+                <div><span>B:</span> Beta</div>  <div><span>F:</span> Fox</div>
+                <div><span>C:</span> Cat</div>   <div><span>G:</span> Golf</div>
+                <div><span>D:</span> Delta</div> <div><span>H:</span> Hotel</div>
+            </div>
+        </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-    
-    <script src="app.js"></script>
+    <div class="side-panel">
+        <div class="stats">
+            <div>Material Score: <span id="points" class="score-val">0</span></div>
+            <div style="margin-top: 10px; color: #2ecc71; font-size: 0.8em;">Captures:</div>
+            <div id="whiteCaptures" class="captured-area"></div>
+            <div style="margin-top: 10px; color: #e74c3c; font-size: 0.8em;">Losses:</div>
+            <div id="blackCaptures" class="captured-area"></div>
+        </div>
+
+        <div>
+            <label style="font-size: 0.9em; color: #aaa;">Difficulty:</label>
+            <select id="diffSelect">
+                <option value="easy">Beginner (Skill 0)</option>
+                <option value="med" selected>Intermediate (Skill 10)</option>
+                <option value="hard">Expert (Skill 20)</option>
+            </select>
+        </div>
+
+        <button id="hintBtn">💡 HINT (<span id="hintCount">15</span>)</button>
+        <button id="resetBtn">🔄 RESET GAME</button>
+
+        <div class="history-box">
+            <strong>History:</strong>
+            <div id="historyList"></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
