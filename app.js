@@ -1,123 +1,154 @@
-// --- 1. Initialize Game Logic and Board UI ---
 const game = new Chess();
+const engine = new Worker("stockfish.js");
+let hintsRemaining = 15;
+const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+const statusText = document.getElementById('status');
 
-const boardConfig = {
-    draggable: true,
-    position: 'start',
-    // Uses online images for pieces
-    pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
-    onDrop: (source, target) => {
-        // Attempt the move in the logic engine
-        let move = game.move({ 
-            from: source, 
-            to: target, 
-            promotion: 'q' 
-        });
-
-        // If move is illegal, return piece to original square
-        if (move === null) return 'snapback';
-
-        // Update board to reflect captures/state and trigger AI
-        board.position(game.fen());
-        window.setTimeout(makeBestMove, 250);
-    }
+// --- CUSTOM MODIFIED PHONETIC MAP ---
+const phoneticMap = {
+    "alpha": "a", "beta": "b", "cat": "c", "delta": "d",
+    "eko": "e", "echo": "e", "fox": "f", "golf": "g", "hotel": "h",
+    "one": "1", "two": "2", "to": "2", "too": "2", "three": "3", "tree": "3",
+    "four": "4", "for": "4", "five": "5", "six": "6", "seven": "7", "eight": "8"
 };
 
-const board = Chessboard('board', boardConfig);
+const board = Chessboard('board', {
+    draggable: true,
+    position: 'start',
+    pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+    onDrop: (source, target) => {
+        let move = game.move({ from: source, to: target, promotion: 'q' });
+        if (move === null) return 'snapback';
+        onMoveComplete();
+    }
+});
 
-// Load the local Stockfish worker
-const engine = new Worker("stockfish.js");
+function onMoveComplete() {
+    board.position(game.fen());
+    updateStats();
+    if (!game.game_over()) {
+        statusText.innerText = "AI is thinking...";
+        setTimeout(playAI, 600);
+    } else {
+        statusText.innerText = "Game Over!";
+        speak("Game Over");
+    }
+}
 
-// --- 2. Voice Recognition Setup ---
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const recognition = new SpeechRecognition();
+// --- Voice Control Logic ---
+const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
 recognition.lang = 'en-US';
-recognition.continuous = false;
+recognition.interimResults = true;
 
-const statusText = document.getElementById('status');
-const listenBtn = document.getElementById('listenBtn');
-
-listenBtn.onclick = () => {
+document.getElementById('listenBtn').onclick = () => {
     recognition.start();
-    statusText.innerText = "Listening... (Say squares like 'E2 E4')";
+    statusText.innerText = "Listening... (e.g. 'Beta 1 Cat 3')";
 };
 
 recognition.onresult = (event) => {
     let transcript = event.results[0][0].transcript.toLowerCase();
-    console.log("Speech Received:", transcript);
-    statusText.innerText = `I heard: "${transcript}"`;
-    parseVoiceMove(transcript);
+    statusText.innerText = `Heard: ${transcript}`;
+
+    if (event.results[0].isFinal) {
+        parseCustomPhonetic(transcript);
+    }
 };
 
-// --- 3. Smart Voice Parser ---
-function parseVoiceMove(text) {
-    // Dictionary to fix common speech-to-text mistakes
-    const replacements = {
-        "for": "4", "four": "4", "to": "2", "two": "2", "too": "2",
-        "ate": "8", "eight": "8", "see": "c", "sea": "c", "be": "b", 
-        "bee": "b", "one": "1", "won": "1", "doux": "d2", "before": "b4"
-    };
-
-    let cleaned = text;
-    for (const [word, num] of Object.entries(replacements)) {
-        cleaned = cleaned.replace(new RegExp(word, 'g'), num);
-    }
+function parseCustomPhonetic(text) {
+    let words = text.replace(/-/g, ' ').split(/\s+/);
+    let coords = "";
     
-    // Extract only valid chess coordinates (e.g., e2e4)
-    cleaned = cleaned.replace(/[^a-h1-8]/g, '');
+    words.forEach(w => {
+        if (phoneticMap[w]) coords += phoneticMap[w];
+        else coords += w.replace(/[^a-h1-8]/g, '');
+    });
 
-    if (cleaned.length >= 4) {
-        const from = cleaned.substring(0, 2);
-        const to = cleaned.substring(2, 4);
-        handleMove(from, to);
-    } else {
-        statusText.innerText = `Could not parse "${text}". Please say squares like 'E2 E4'.`;
-        speak("Try again");
+    // Match patterns like b1c3 or e2e4
+    const match = coords.match(/([a-h][1-8])([a-h][1-8])/);
+    if (match) {
+        let move = game.move({ from: match[1], to: match[2], promotion: 'q' });
+        if (move) {
+            onMoveComplete();
+            flashBoard('#2ecc71');
+        } else {
+            speak("Illegal move");
+            flashBoard('#e74c3c');
+        }
     }
 }
 
-// --- 4. Move Execution & AI ---
-function handleMove(from, to) {
-    const move = game.move({ from: from, to: to, promotion: 'q' });
+// --- AI Logic ---
+function playAI() {
+    const skill = document.getElementById('diffSelect').value;
+    engine.postMessage(`position fen ${game.fen()}`);
+    
+    let skillLevel = skill === "easy" ? 0 : (skill === "med" ? 8 : 20);
+    let depth = skill === "easy" ? 1 : (skill === "med" ? 8 : 15);
 
-    if (move === null) {
-        statusText.innerText = `Illegal move: ${from} to ${to}`;
-        speak("That is not a legal move.");
-    } else {
-        // board.position(game.fen()) is CRITICAL for showing captures
-        board.position(game.fen());
-        statusText.innerText = "AI is thinking...";
-        window.setTimeout(makeBestMove, 500);
-    }
-}
+    engine.postMessage(`setoption name Skill Level value ${skillLevel}`);
+    engine.postMessage(`go depth ${depth}`);
 
-function makeBestMove() {
-    if (game.game_over()) {
-        const result = game.in_checkmate() ? "Checkmate!" : "Draw!";
-        statusText.innerText = `Game Over: ${result}`;
-        speak(`Game over. ${result}`);
-        return;
-    }
-
-    // Tell Stockfish the current board state
-    engine.postMessage("position fen " + game.fen());
-    engine.postMessage("go depth 12"); // Search 12 moves deep
-
-    engine.onmessage = (event) => {
-        if (event.data.startsWith("bestmove")) {
-            const moveData = event.data.split(" ")[1];
-            const from = moveData.substring(0, 2);
-            const to = moveData.substring(2, 4);
-
-            game.move({ from: from, to: to, promotion: 'q' });
-            board.position(game.fen()); // Refreshes UI to show the AI's move and any captures
-            
-            speak(`AI plays ${from} to ${to}`);
-            statusText.innerText = "Your turn!";
+    engine.onmessage = (e) => {
+        if (e.data.startsWith("bestmove")) {
+            const m = e.data.split(" ")[1];
+            game.move({ from: m.substring(0,2), to: m.substring(2,4), promotion: 'q' });
+            board.position(game.fen());
+            updateStats();
+            speak(`AI moves ${m.substring(0,2)} to ${m.substring(2,4)}`);
+            statusText.innerText = "Your turn.";
         }
     };
 }
 
-function speak(text) {
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+// --- Stats & UI Updates ---
+function updateStats() {
+    const history = game.history();
+    document.getElementById('historyList').innerText = history.join(', ');
+
+    const symbols = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' };
+    let score = 0;
+    let whiteCap = "", blackCap = "";
+    
+    const count = { w: {p:0, n:0, b:0, r:0, q:0}, b: {p:0, n:0, b:0, r:0, q:0} };
+    game.board().forEach(r => r.forEach(p => { if(p && p.type !== 'k') count[p.color][p.type]++; }));
+
+    const start = {p:8, n:2, b:2, r:2, q:1};
+    for (let type in start) {
+        for(let i=0; i<(start[type]-count.b[type]); i++) { whiteCap += symbols[type]; score += pieceValues[type]; }
+        for(let i=0; i<(start[type]-count.w[type]); i++) { blackCap += symbols[type]; score -= pieceValues[type]; }
+    }
+    document.getElementById('points').innerText = (score > 0 ? "+" : "") + score;
+    document.getElementById('whiteCaptures').innerText = whiteCap;
+    document.getElementById('blackCaptures').innerText = blackCap;
+}
+
+function flashBoard(color) {
+    $('#board').css('border-color', color);
+    setTimeout(() => $('#board').css('border-color', '#333'), 600);
+}
+
+document.getElementById('hintBtn').onclick = () => {
+    if (hintsRemaining > 0 && !game.game_over()) {
+        hintsRemaining--;
+        document.getElementById('hintCount').innerText = hintsRemaining;
+        engine.postMessage(`position fen ${game.fen()}`);
+        engine.postMessage(`go depth 15`);
+        engine.onmessage = (e) => {
+            if (e.data.startsWith("bestmove")) {
+                const m = e.data.split(" ")[1];
+                speak(`Try ${m.substring(0,2)} to ${m.substring(2,4)}`);
+                statusText.innerText = `HINT: ${m.substring(0,2)}-${m.substring(2,4)}`;
+            }
+        };
+    }
+};
+
+document.getElementById('resetBtn').onclick = () => {
+    if(confirm("Reset the game?")) location.reload();
+};
+
+function speak(t) { 
+    const utterance = new SpeechSynthesisUtterance(t);
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance); 
 }
